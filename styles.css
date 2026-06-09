@@ -23,7 +23,7 @@ body {
   background:
     linear-gradient(180deg, #fbf7ef 0%, var(--bg) 52%, #eee8dc 100%);
   color: var(--ink);
-  font-family: "Segoe UI", "Noto Sans TC", system-ui, sans-serif;
+  font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", "Source Han Sans TC", "Segoe UI", system-ui, sans-serif;
 }
 
 button,
