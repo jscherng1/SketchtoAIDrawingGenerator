@@ -53,11 +53,25 @@ const usageStorePath = path.join(root, ".openai-credit-usage.json");
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": process.env.ALLOWED_ORIGIN || "*",
+    "Access-Control-Allow-Origin": getAllowedOrigin(res.req),
+    "Vary": "Origin",
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type,Authorization"
   });
   res.end(JSON.stringify(payload));
+}
+
+function getAllowedOrigin(req) {
+  const allowedOrigin = process.env.ALLOWED_ORIGIN || "*";
+  if (allowedOrigin === "*") return "*";
+
+  const requestOrigin = req?.headers?.origin || "";
+  const allowedOrigins = allowedOrigin
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  return allowedOrigins.includes(requestOrigin) ? requestOrigin : allowedOrigins[0] || "*";
 }
 
 function readRequestBody(req) {
@@ -317,7 +331,8 @@ http
 
     if (req.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
       res.writeHead(204, {
-        "Access-Control-Allow-Origin": process.env.ALLOWED_ORIGIN || "*",
+        "Access-Control-Allow-Origin": getAllowedOrigin(req),
+        "Vary": "Origin",
         "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type,Authorization"
       });
