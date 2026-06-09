@@ -11,13 +11,20 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">Sketch-to-AI Drawing Generator</p>
-          <h1>草圖 AI 輔助繪製產生器</h1>
+          <h1>草圖 AI 輔助繪製產生器 <span class="title-credit">（由程老師製作）</span></h1>
           <p class="subtitle">先畫出概念，再把草圖整理成更完整的 AI 插畫提示與結果預覽。</p>
         </div>
-        <button class="download-button" id="downloadSketchBtn" type="button" title="下載草圖" aria-label="下載草圖">
-          <span aria-hidden="true">↓</span>
-          <span>下載草圖</span>
-        </button>
+        <div class="topbar-actions">
+          <div class="credit-meter" id="creditMeter" title="OpenAI Credit 預算狀態">
+            <span class="credit-label">Credit</span>
+            <strong id="creditRemaining">讀取中</strong>
+            <small id="creditDetail">OpenAI 用量</small>
+          </div>
+          <button class="download-button" id="downloadSketchBtn" type="button" title="下載草圖" aria-label="下載草圖">
+            <span aria-hidden="true">↓</span>
+            <span>下載草圖</span>
+          </button>
+        </div>
       </header>
 
       <section class="project-actions" aria-label="專案進度">
@@ -72,7 +79,7 @@
 
           <label class="field">
             <span>作品名稱</span>
-            <input id="projectName" type="text" placeholder="例如：毛後狗" autocomplete="off">
+            <input id="projectName" type="text" placeholder="例如：快樂小狗" autocomplete="off">
           </label>
 
           <div class="upload-panel" id="uploadPanel" hidden>
@@ -133,13 +140,13 @@
           </div>
 
           <fieldset class="option-group">
-            <legend>草圖類型</legend>
+            <legend>輸入草圖類型</legend>
             <label>
-              <input type="radio" name="sketchMode" value="black and white line sketch" checked>
+              <input type="radio" name="sketchMode" value="black-white" checked>
               <span>黑白草圖</span>
             </label>
             <label>
-              <input type="radio" name="sketchMode" value="colored sketch">
+              <input type="radio" name="sketchMode" value="colored">
               <span>彩色草圖</span>
             </label>
           </fieldset>
@@ -166,6 +173,9 @@
               <option value="storybook">繪本風格</option>
               <option value="toy3d">3D 玩具感</option>
               <option value="realistic">半寫實質感</option>
+              <option value="photoreal">寫實質感</option>
+              <option value="cinematic">電影 Cinematic 質感</option>
+              <option value="sketch">純素描質感</option>
               <option value="sticker">貼紙圖案</option>
               <option value="pixel">像素藝術</option>
               <option value="comic">美式漫畫</option>
@@ -179,42 +189,13 @@
 
           <div class="level-note style-note" id="styleNote">可愛插畫：圓潤、親切、色彩明亮，適合角色或小物件。</div>
 
-          <div class="api-status" id="apiStatus">
-            <div>
-              <strong>AI 串接模式</strong>
-              <span id="apiStatusText">目前使用本地模擬預覽，尚未送出到真正 AI API。</span>
-            </div>
-            <span class="status-pill" id="apiStatusPill">模擬模式</span>
-          </div>
-
           <details class="api-config">
-            <summary>AI API 設定</summary>
+            <summary>AI模型名稱</summary>
             <div class="api-config-body">
-              <fieldset class="option-group compact-options">
-                <legend>產生模式</legend>
-                <label>
-                  <input type="radio" name="apiMode" value="mock" checked>
-                  <span>模擬模式</span>
-                </label>
-                <label>
-                  <input type="radio" name="apiMode" value="real">
-                  <span>真正 AI API</span>
-                </label>
-              </fieldset>
-
-              <label class="field">
-                <span>API Key</span>
-                <input id="apiKeyInput" type="password" placeholder="貼上 API Key 後才能使用真正 AI API" autocomplete="off" disabled>
-              </label>
-
               <label class="field">
                 <span>模型名稱</span>
-                <input id="apiModelInput" type="text" value="gpt-image-1.5" autocomplete="off" disabled>
+                <input id="apiModelInput" type="text" value="gpt-image-1.5" autocomplete="off">
               </label>
-
-              <p class="api-help" id="apiHelp">
-                目前使用模擬模式，不會送出圖片或 API Key。
-              </p>
             </div>
           </details>
 
@@ -248,14 +229,13 @@
               <div class="empty-result">
                 <span aria-hidden="true">◇</span>
                 <strong>AI 修飾結果會顯示在這裡</strong>
-                <small>目前是流程預覽版，尚未串接真正 AI API。</small>
+                <small>繪製或上傳草圖後，按下開始即可產生真正 AI 圖片。</small>
               </div>
             </div>
             <div class="result-actions" id="resultActions" hidden>
               <button type="button" id="downloadResultBtn">下載結果</button>
               <button type="button" id="useResultBtn">套用到畫板</button>
             </div>
-            <p class="result-note" id="resultNote">產生後會依照修飾等級顯示不同的本地模擬預覽。</p>
             <div class="history-panel">
               <div class="history-heading">
                 <strong>結果紀錄</strong>

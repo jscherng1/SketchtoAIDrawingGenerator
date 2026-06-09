@@ -20,6 +20,9 @@ const generateBtn = document.querySelector("#generateBtn");
 const resultPreview = document.querySelector("#resultPreview");
 const resultActions = document.querySelector("#resultActions");
 const resultNote = document.querySelector("#resultNote");
+const creditMeter = document.querySelector("#creditMeter");
+const creditRemaining = document.querySelector("#creditRemaining");
+const creditDetail = document.querySelector("#creditDetail");
 const downloadResultBtn = document.querySelector("#downloadResultBtn");
 const useResultBtn = document.querySelector("#useResultBtn");
 const resultViewButtons = document.querySelectorAll("[data-result-view]");
@@ -39,10 +42,6 @@ const projectStatus = document.querySelector("#projectStatus");
 const canvasStatus = document.querySelector("#canvasStatus");
 const levelNote = document.querySelector("#levelNote");
 const styleNote = document.querySelector("#styleNote");
-const apiStatusText = document.querySelector("#apiStatusText");
-const apiStatusPill = document.querySelector("#apiStatusPill");
-const apiModeInputs = document.querySelectorAll("input[name='apiMode']");
-const apiKeyInput = document.querySelector("#apiKeyInput");
 const apiModelInput = document.querySelector("#apiModelInput");
 const apiHelp = document.querySelector("#apiHelp");
 const flowSteps = document.querySelectorAll(".flow-step");
@@ -100,6 +99,21 @@ const stylePresets = {
     prompt: "Use a semi-realistic style with refined lighting, believable materials, and polished texture.",
     note: "半寫實質感：光影和材質更完整，適合想要較成熟的完成圖。"
   },
+  photoreal: {
+    label: "寫實質感",
+    prompt: "Use a photorealistic style with natural lighting, realistic surfaces, accurate proportions, and camera-like detail.",
+    note: "寫實質感：接近照片效果，強調自然光線、真實材質與比例。"
+  },
+  cinematic: {
+    label: "電影 Cinematic 質感",
+    prompt: "Use a cinematic visual style with dramatic lighting, film-like color grading, depth of field, and a polished movie still atmosphere.",
+    note: "電影 Cinematic 質感：強調電影光影、景深、色調與畫面氛圍。"
+  },
+  sketch: {
+    label: "純素描質感",
+    prompt: "Use a pure pencil sketch style with grayscale shading, visible hand-drawn strokes, paper texture, and no digital coloring.",
+    note: "純素描質感：黑白鉛筆筆觸、灰階陰影與紙張質感，不做彩色上色。"
+  },
   sticker: {
     label: "貼紙圖案",
     prompt: "Use a clean sticker design style with bold outlines, simple shapes, and a transparent-sticker feeling.",
@@ -143,9 +157,11 @@ const stylePresets = {
 };
 
 const aiConfig = {
-  mode: "mock",
+  mode: "real",
   provider: "openai",
-  model: "gpt-image-1.5"
+  model: "gpt-image-1.5",
+  serverHasApiKey: false,
+  serverAvailable: false
 };
 
 const toolNames = {
@@ -178,11 +194,11 @@ function renderEmptyResult() {
     <div class="empty-result">
       <span aria-hidden="true">◇</span>
       <strong>AI 修飾結果會顯示在這裡</strong>
-      <small>目前是流程預覽版，尚未串接真正 AI API。</small>
+      <small>繪製或上傳草圖後，按下開始即可產生真正 AI 圖片。</small>
     </div>
   `;
   resultActions.hidden = true;
-  resultNote.textContent = "產生後會依照修飾等級顯示不同的本地模擬預覽。";
+  if (resultNote) resultNote.textContent = "";
   latestResultUrl = "";
   latestSourceUrl = "";
   activeHistoryId = "";
@@ -266,7 +282,7 @@ function selectHistoryItem(id) {
   if (!item) return;
   activeHistoryId = item.id;
   renderCurrentResult(item.imageUrl, item.sourceUrl);
-  resultNote.textContent = `已切回結果紀錄：第 ${item.level} 級本地模擬預覽。`;
+  if (resultNote) resultNote.textContent = `已切回結果紀錄：第 ${item.level} 級 AI 修飾結果。`;
   renderHistory();
 }
 
@@ -275,8 +291,18 @@ function getSelectedValue(name) {
 }
 
 function setSelectedValue(name, value) {
-  const input = document.querySelector(`input[name='${name}'][value='${value}']`);
+  const normalizedValue = normalizeSelectedValue(name, value);
+  const input = document.querySelector(`input[name='${name}'][value='${normalizedValue}']`);
   if (input) input.checked = true;
+}
+
+function normalizeSelectedValue(name, value) {
+  if (name === "sketchMode") {
+    if (value === "black and white line sketch") return "black-white";
+    if (value === "colored sketch") return "colored";
+  }
+
+  return value;
 }
 
 function buildProjectSnapshot() {
@@ -285,7 +311,6 @@ function buildProjectSnapshot() {
     formatVersion: 1,
     projectName: projectName.value,
     sketchMode: getSelectedValue("sketchMode"),
-    apiMode: getSelectedValue("apiMode"),
     apiModel: apiModelInput.value,
     enhancementLevel: enhancementLevel.value,
     stylePreset: stylePreset.value,
@@ -342,8 +367,7 @@ async function applyProjectSnapshot(project) {
   }
 
   projectName.value = project.projectName || "";
-  setSelectedValue("sketchMode", project.sketchMode || "black and white line sketch");
-  setSelectedValue("apiMode", project.apiMode || "mock");
+  setSelectedValue("sketchMode", project.sketchMode || "black-white");
   apiModelInput.value = project.apiModel || "gpt-image-1.5";
   enhancementLevel.value = project.enhancementLevel || "4";
   stylePreset.value = project.stylePreset || "cute";
@@ -528,9 +552,26 @@ function getSketchMode() {
   return document.querySelector("input[name='sketchMode']:checked").value;
 }
 
+function getSketchModePrompt(mode) {
+  if (mode === "black-white") {
+    return {
+      description: "The sketch is a black-and-white line sketch.",
+      colorRule: "Treat the input as line art and do not infer existing color information from the sketch. The final output color should follow the selected visual style and enhancement level.",
+      defaultDirection: "Create a refined illustration based on the sketch."
+    };
+  }
+
+  return {
+    description: "The sketch is a colored sketch.",
+    colorRule: "Preserve and enhance the main color ideas from the input sketch while following the selected visual style and enhancement level.",
+    defaultDirection: "Create a refined and cute character illustration based on the sketch."
+  };
+}
+
 function buildPrompt() {
   const name = projectName.value.trim() || "untitled sketch";
   const mode = getSketchMode();
+  const modePrompt = getSketchModePrompt(mode);
   const level = enhancementLevel.value;
   const style = stylePresets[stylePreset.value] || stylePresets.cute;
   const extra = extraPrompt.value.trim();
@@ -539,22 +580,23 @@ function buildPrompt() {
     `Artwork name: ${name}`,
     "Use the uploaded or drawn sketch as the main reference.",
     "Preserve the original composition and main shape.",
-    `The sketch is a ${mode}.`,
+    modePrompt.description,
+    modePrompt.colorRule,
     `Enhancement level: ${enhancementLevel.options[enhancementLevel.selectedIndex].text}.`,
     `Visual style: ${style.label}.`,
     enhancementPrompts[level],
     style.prompt,
-    extra ? `Additional direction: ${extra}` : "Create a refined and cute character illustration based on the sketch."
+    extra ? `Additional direction: ${extra}` : modePrompt.defaultDirection
   ].join("\n");
 }
 
 function buildAIRequestPayload() {
   return {
     appVersion: "prototype-stage-4",
-    mode: aiConfig.mode,
+    mode: "real",
     provider: aiConfig.provider,
     model: apiModelInput.value.trim() || aiConfig.model,
-    hasApiKey: Boolean(apiKeyInput.value.trim()),
+    hasApiKey: aiConfig.serverHasApiKey,
     projectName: projectName.value.trim() || "untitled sketch",
     sketchMode: getSketchMode(),
     enhancementLevel: Number(enhancementLevel.value),
@@ -576,19 +618,80 @@ function getSafePayloadLog(payload) {
 }
 
 function updateApiConfig() {
-  const selectedMode = document.querySelector("input[name='apiMode']:checked")?.value || "mock";
-  aiConfig.mode = selectedMode;
-  const isRealMode = selectedMode === "real";
+  aiConfig.mode = "real";
+  if (apiHelp) {
+    apiHelp.textContent = aiConfig.serverHasApiKey
+      ? ""
+      : "尚未偵測到 .env 的 OPENAI_API_KEY。請設定後重新啟動本機 server。";
+  }
+}
 
-  apiKeyInput.disabled = !isRealMode;
-  apiModelInput.disabled = !isRealMode;
-  apiStatusPill.textContent = isRealMode ? "真正 API" : "模擬模式";
-  apiStatusText.textContent = isRealMode
-    ? "已切換到真正 AI API 模式；產生前請確認 API Key 與模型名稱。"
-    : "目前使用本地模擬預覽，尚未送出到真正 AI API。";
-  apiHelp.textContent = isRealMode
-    ? "API Key 只會送到本機代理伺服器，不會被暫存或匯出。也可以改用 OPENAI_API_KEY 環境變數。"
-    : "目前使用模擬模式，不會送出圖片或 API Key。";
+function formatUsd(value) {
+  return `$${Number(value || 0).toFixed(2)}`;
+}
+
+function renderCreditStatus(status) {
+  if (!creditMeter || !creditRemaining || !creditDetail) return;
+
+  creditMeter.classList.remove("is-warning", "is-error");
+
+  if (!status?.available) {
+    creditMeter.classList.add("is-error");
+    creditRemaining.textContent = status?.budgetUsd ? `${formatUsd(status.budgetUsd)} 預算` : "無法讀取";
+    creditDetail.textContent = status?.message || "請到 Usage Dashboard 確認";
+    return;
+  }
+
+  const remaining = Number(status.remainingUsd || 0);
+  const budget = Number(status.budgetUsd || 0);
+  const spent = Number(status.spentUsd || 0);
+  const ratio = budget > 0 ? remaining / budget : 0;
+
+  if (ratio <= 0.2) creditMeter.classList.add("is-warning");
+
+  creditRemaining.textContent = `${formatUsd(remaining)} ${status.estimated ? "估算剩餘" : "剩餘"}`;
+  creditDetail.textContent = status.estimated
+    ? `估算已用 ${formatUsd(spent)} / ${status.imageGenerations || 0} 次產圖`
+    : `已用 ${formatUsd(spent)} / 總額 ${formatUsd(budget)}`;
+}
+
+async function refreshCreditStatus() {
+  if (!creditRemaining || !creditDetail) return;
+
+  try {
+    creditRemaining.textContent = "讀取中";
+    creditDetail.textContent = "OpenAI 用量";
+
+    const response = await fetch("/api/credit-status");
+    const status = await response.json();
+    renderCreditStatus(status);
+  } catch (error) {
+    renderCreditStatus({
+      available: false,
+      message: "無法連線到本機用量查詢"
+    });
+  }
+}
+
+async function refreshApiStatus() {
+  try {
+    const response = await fetch("/api/status");
+    if (!response.ok) throw new Error("API status unavailable.");
+
+    const status = await response.json();
+    aiConfig.serverAvailable = true;
+    aiConfig.serverHasApiKey = Boolean(status.hasServerApiKey);
+    aiConfig.model = status.defaultImageModel || aiConfig.model;
+    if (!apiModelInput.value.trim()) {
+      apiModelInput.value = aiConfig.model;
+    }
+  } catch (error) {
+    aiConfig.serverAvailable = false;
+    aiConfig.serverHasApiKey = false;
+    console.warn("Could not read local API status:", error);
+  } finally {
+    updateApiConfig();
+  }
 }
 
 function updatePromptPreview() {
@@ -616,6 +719,9 @@ function applyMockEnhancement(sourceCanvas, level, styleKey = "cute") {
     storybook: " sepia(0.12) saturate(1.1)",
     toy3d: " saturate(1.22) brightness(1.12)",
     realistic: " contrast(1.08) saturate(0.95)",
+    photoreal: " contrast(1.12) saturate(1.02) brightness(0.98)",
+    cinematic: " contrast(1.32) saturate(1.18) brightness(0.96)",
+    sketch: " grayscale(1) contrast(1.35) brightness(1.05)",
     sticker: " contrast(1.4) saturate(1.4) brightness(1.08)",
     pixel: " contrast(1.5) saturate(1.2)",
     comic: " contrast(1.65) saturate(1.28)",
@@ -641,6 +747,9 @@ function applyMockEnhancement(sourceCanvas, level, styleKey = "cute") {
       storybook: ["rgba(231, 178, 112, 0.16)", "rgba(126, 169, 116, 0.12)"],
       toy3d: ["rgba(255, 255, 255, 0.22)", "rgba(128, 210, 255, 0.14)"],
       realistic: ["rgba(255, 244, 220, 0.10)", "rgba(70, 70, 70, 0.08)"],
+      photoreal: ["rgba(255, 255, 255, 0.08)", "rgba(30, 30, 30, 0.06)"],
+      cinematic: ["rgba(24, 36, 56, 0.16)", "rgba(255, 176, 92, 0.12)"],
+      sketch: ["rgba(255, 255, 255, 0.12)", "rgba(0, 0, 0, 0.08)"],
       sticker: ["rgba(255, 255, 255, 0.22)", "rgba(255, 223, 93, 0.14)"],
       pixel: ["rgba(70, 70, 70, 0.08)", "rgba(255, 255, 255, 0.08)"],
       comic: ["rgba(255, 230, 80, 0.16)", "rgba(255, 64, 64, 0.10)"],
@@ -705,13 +814,12 @@ async function generateRealAIImage(payload) {
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      ...payload,
-      apiKey: apiKeyInput.value.trim()
-    })
+    body: JSON.stringify(payload)
   });
 
-  const data = await response.json();
+  const data = await response.json().catch(() => ({
+    error: "本機 API 回傳格式不正確，請確認 preview-server.js 是否正在執行。"
+  }));
   if (!response.ok) {
     throw new Error(data.error || "Real AI API request failed.");
   }
@@ -726,10 +834,6 @@ async function generateRealAIImage(payload) {
 }
 
 async function generateAIImage(payload) {
-  if (aiConfig.mode === "mock") {
-    return generateMockImage(payload);
-  }
-
   return generateRealAIImage(payload);
 }
 
@@ -839,9 +943,11 @@ async function downloadResult() {
   const filename = `${projectName.value.trim() || "ai-preview"}-結果.png`;
   const savedWithPicker = await saveBlob(blob, filename, latestResultUrl);
   showDownloadNotice(filename, "結果", latestResultUrl, savedWithPicker);
-  resultNote.textContent = savedWithPicker
-    ? "結果已儲存到你選擇的位置。"
-    : "已嘗試下載結果；如果下載資料夾沒有檔案，請使用上方的「開啟圖片」後手動儲存。";
+  if (resultNote) {
+    resultNote.textContent = savedWithPicker
+      ? "結果已儲存到你選擇的位置。"
+      : "已嘗試下載結果；如果下載資料夾沒有檔案，請使用上方的「開啟圖片」後手動儲存。";
+  }
 }
 
 function showDownloadNotice(filename, type, dataUrl, savedWithPicker = false) {
@@ -979,10 +1085,6 @@ backTopButtons.forEach((button) => {
   input.addEventListener("change", updatePromptPreview);
 });
 
-apiModeInputs.forEach((input) => {
-  input.addEventListener("change", updateApiConfig);
-});
-
 apiModelInput.addEventListener("input", () => {
   aiConfig.model = apiModelInput.value.trim() || "gpt-image-1.5";
 });
@@ -1049,15 +1151,14 @@ generateBtn.addEventListener("click", async () => {
 
     renderCurrentResult(result.imageUrl, payload.sketchImageBase64);
     addResultHistoryItem(result, payload);
-    resultNote.textContent = result.source === "openai"
-      ? `目前顯示第 ${payload.enhancementLevel} 級 OpenAI 產生結果。`
-      : `目前顯示第 ${payload.enhancementLevel} 級本地模擬預覽；已建立標準 AI 請求資料。`;
+    if (resultNote) resultNote.textContent = `目前顯示第 ${payload.enhancementLevel} 級 OpenAI 產生結果。`;
+    refreshCreditStatus();
   } catch (error) {
     console.error(error);
     let message = "請再按一次開始 AI 修飾，或先清除畫板後重試。";
     if (error.message.includes("Missing OpenAI API key")) {
-      message = "真正 AI API 模式需要 API Key。請在設定區填寫，或用 OPENAI_API_KEY 啟動本機服務。";
-    } else if (aiConfig.mode === "real") {
+      message = "真正 AI API 需要 API Key。請在 .env 設定 OPENAI_API_KEY 後重新啟動本機服務。";
+    } else {
       message = `真正 AI API 產生失敗：${error.message}`;
     }
     resultPreview.innerHTML = `
@@ -1077,4 +1178,6 @@ paintWhiteBackground();
 saveCanvasState();
 updatePromptPreview();
 updateApiConfig();
+refreshApiStatus();
+refreshCreditStatus();
 renderHistory();
