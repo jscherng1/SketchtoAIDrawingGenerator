@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>草圖 AI 輔助繪製產生器</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Sketch-to-AI Drawing Generator</p>
+          <h1>草圖 AI 輔助繪製產生器</h1>
+          <p class="subtitle">先畫出概念，再把草圖整理成更完整的 AI 插畫提示與結果預覽。</p>
+        </div>
+        <button class="download-button" id="downloadSketchBtn" type="button" title="下載草圖" aria-label="下載草圖">
+          <span aria-hidden="true">↓</span>
+          <span>下載草圖</span>
+        </button>
+      </header>
+
+      <section class="project-actions" aria-label="專案進度">
+        <button type="button" id="saveProjectBtn">儲存進度</button>
+        <button type="button" id="loadProjectBtn">載入進度</button>
+        <button type="button" id="clearProjectBtn">清除暫存</button>
+        <button type="button" id="exportProjectBtn">匯出專案</button>
+        <label class="import-project-button">
+          <input id="importProjectInput" type="file" accept="application/json,.json">
+          <span>匯入專案</span>
+        </label>
+        <span id="projectStatus">進度只會儲存在目前瀏覽器。</span>
+      </section>
+
+      <section class="download-notice" id="downloadNotice" hidden aria-live="polite">
+        <div>
+          <p class="eyebrow">下載提示</p>
+          <strong id="downloadNoticeTitle">已開始下載</strong>
+          <p id="downloadNoticeText">檔案通常會出現在瀏覽器預設的下載資料夾。</p>
+          <button class="notice-action" type="button" id="openDownloadImageBtn" hidden>開啟圖片</button>
+        </div>
+        <button type="button" id="closeDownloadNotice" aria-label="關閉下載提示">×</button>
+      </section>
+
+      <div class="flow-strip" aria-label="目前流程">
+        <button class="flow-step is-current" type="button" data-jump-target="studio">
+          <span>1</span>
+          <strong>建立草圖</strong>
+        </button>
+        <button class="flow-step" type="button" data-jump-target="settings">
+          <span>2</span>
+          <strong>設定修飾</strong>
+        </button>
+        <button class="flow-step" type="button" data-jump-target="result">
+          <span>3</span>
+          <strong>產生預覽</strong>
+        </button>
+      </div>
+
+      <main class="workspace">
+        <section class="studio" id="studioSection" aria-label="草圖工作區">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Step 1</p>
+              <h2>建立草圖</h2>
+            </div>
+            <div class="source-toggle" role="tablist" aria-label="草圖來源">
+              <button class="source-button is-active" type="button" data-source="draw">直接繪製</button>
+              <button class="source-button" type="button" data-source="upload">上傳圖片</button>
+            </div>
+          </div>
+
+          <label class="field">
+            <span>作品名稱</span>
+            <input id="projectName" type="text" placeholder="例如：毛後狗" autocomplete="off">
+          </label>
+
+          <div class="upload-panel" id="uploadPanel" hidden>
+            <label class="upload-box">
+              <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp">
+              <span class="upload-main">選擇草圖圖片</span>
+              <span class="upload-note">支援 PNG、JPG、JPEG、WEBP</span>
+            </label>
+          </div>
+
+          <div class="canvas-header">
+            <div>
+              <strong>原始草圖區</strong>
+              <span id="canvasStatus">目前工具：筆刷</span>
+            </div>
+            <span class="canvas-hint">可用滑鼠、觸控筆或手指繪製</span>
+          </div>
+
+          <div class="canvas-wrap">
+            <canvas id="drawingCanvas" width="1200" height="840" aria-label="草圖畫板"></canvas>
+          </div>
+
+          <div class="toolbar" aria-label="畫板工具">
+            <button class="tool-button is-active" type="button" data-tool="brush" title="筆刷">
+              <span aria-hidden="true">✎</span>
+              <span>筆刷</span>
+            </button>
+            <button class="tool-button" type="button" data-tool="eraser" title="橡皮擦">
+              <span aria-hidden="true">⌫</span>
+              <span>橡皮擦</span>
+            </button>
+            <label class="compact-field">
+              <span>顏色</span>
+              <input id="brushColor" type="color" value="#111827">
+            </label>
+            <label class="compact-field range-field">
+              <span>粗細 <strong id="brushSizeValue">8</strong></span>
+              <input id="brushSize" type="range" min="1" max="50" value="8">
+            </label>
+            <button class="icon-button text-icon-button" id="undoBtn" type="button" title="復原" aria-label="復原">
+              <span aria-hidden="true">↶</span>
+              <span>復原</span>
+            </button>
+            <button class="icon-button text-icon-button danger" id="clearBtn" type="button" title="清除" aria-label="清除">
+              <span aria-hidden="true">×</span>
+              <span>清除</span>
+            </button>
+          </div>
+          <button class="back-top-button" type="button" data-back-top>回到上方</button>
+        </section>
+
+        <aside class="settings" id="settingsSection" aria-label="AI 修飾設定">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Step 2</p>
+              <h2>AI 修飾設定</h2>
+            </div>
+          </div>
+
+          <fieldset class="option-group">
+            <legend>草圖類型</legend>
+            <label>
+              <input type="radio" name="sketchMode" value="black and white line sketch" checked>
+              <span>黑白草圖</span>
+            </label>
+            <label>
+              <input type="radio" name="sketchMode" value="colored sketch">
+              <span>彩色草圖</span>
+            </label>
+          </fieldset>
+
+          <label class="field">
+            <span>修飾程度</span>
+            <select id="enhancementLevel">
+              <option value="1">1. 清理線條</option>
+              <option value="2">2. 精緻線稿</option>
+              <option value="3">3. 上色插畫</option>
+              <option value="4" selected>4. 完整數位插畫</option>
+              <option value="5">5. 動漫角色設計</option>
+            </select>
+          </label>
+
+          <div class="level-note" id="levelNote">完整數位插畫：加入細節、光影與質感，保留原本構圖。</div>
+
+          <label class="field">
+            <span>風格預設</span>
+            <select id="stylePreset">
+              <option value="cute" selected>可愛插畫</option>
+              <option value="anime">動漫角色</option>
+              <option value="watercolor">柔和水彩</option>
+              <option value="storybook">繪本風格</option>
+              <option value="toy3d">3D 玩具感</option>
+              <option value="realistic">半寫實質感</option>
+              <option value="sticker">貼紙圖案</option>
+              <option value="pixel">像素藝術</option>
+              <option value="comic">美式漫畫</option>
+              <option value="oilpaint">厚塗油畫</option>
+              <option value="clay">黏土模型</option>
+              <option value="fantasy">奇幻概念</option>
+              <option value="cyberpunk">賽博龐克</option>
+              <option value="minimal">極簡圖標</option>
+            </select>
+          </label>
+
+          <div class="level-note style-note" id="styleNote">可愛插畫：圓潤、親切、色彩明亮，適合角色或小物件。</div>
+
+          <div class="api-status" id="apiStatus">
+            <div>
+              <strong>AI 串接模式</strong>
+              <span id="apiStatusText">目前使用本地模擬預覽，尚未送出到真正 AI API。</span>
+            </div>
+            <span class="status-pill" id="apiStatusPill">模擬模式</span>
+          </div>
+
+          <details class="api-config">
+            <summary>AI API 設定</summary>
+            <div class="api-config-body">
+              <fieldset class="option-group compact-options">
+                <legend>產生模式</legend>
+                <label>
+                  <input type="radio" name="apiMode" value="mock" checked>
+                  <span>模擬模式</span>
+                </label>
+                <label>
+                  <input type="radio" name="apiMode" value="real">
+                  <span>真正 AI API</span>
+                </label>
+              </fieldset>
+
+              <label class="field">
+                <span>API Key</span>
+                <input id="apiKeyInput" type="password" placeholder="貼上 API Key 後才能使用真正 AI API" autocomplete="off" disabled>
+              </label>
+
+              <label class="field">
+                <span>模型名稱</span>
+                <input id="apiModelInput" type="text" value="gpt-image-1.5" autocomplete="off" disabled>
+              </label>
+
+              <p class="api-help" id="apiHelp">
+                目前使用模擬模式，不會送出圖片或 API Key。
+              </p>
+            </div>
+          </details>
+
+          <label class="field">
+            <span>補充描述</span>
+            <textarea id="extraPrompt" rows="4" placeholder="例如：可愛、圓潤、柔和光線、保留原本姿勢"></textarea>
+          </label>
+
+          <div class="prompt-preview">
+            <div class="preview-title">
+              <span>Prompt 預覽</span>
+              <button id="copyPromptBtn" type="button">複製</button>
+            </div>
+            <pre id="promptText"></pre>
+          </div>
+
+          <button class="back-top-button step-back-top" type="button" data-back-top>回到上方</button>
+
+          <button class="generate-button" id="generateBtn" type="button">開始 AI 修飾</button>
+
+          <div class="result-panel" id="resultSection">
+            <div class="result-title">
+              <p class="eyebrow">Step 3</p>
+              <h2>結果預覽</h2>
+            </div>
+            <div class="compare-toggle" aria-label="結果檢視模式">
+              <button class="is-active" type="button" data-result-view="single">目前預覽</button>
+              <button type="button" data-result-view="compare">前後比較</button>
+            </div>
+            <div class="result-preview" id="resultPreview">
+              <div class="empty-result">
+                <span aria-hidden="true">◇</span>
+                <strong>AI 修飾結果會顯示在這裡</strong>
+                <small>目前是流程預覽版，尚未串接真正 AI API。</small>
+              </div>
+            </div>
+            <div class="result-actions" id="resultActions" hidden>
+              <button type="button" id="downloadResultBtn">下載結果</button>
+              <button type="button" id="useResultBtn">套用到畫板</button>
+            </div>
+            <p class="result-note" id="resultNote">產生後會依照修飾等級顯示不同的本地模擬預覽。</p>
+            <div class="history-panel">
+              <div class="history-heading">
+                <strong>結果紀錄</strong>
+                <button type="button" id="clearHistoryBtn">清空</button>
+              </div>
+              <div class="history-list" id="historyList">
+                <span class="history-empty">產生結果後會保留在這裡。</span>
+              </div>
+            </div>
+          </div>
+          <button class="back-top-button" type="button" data-back-top>回到上方</button>
+        </aside>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
