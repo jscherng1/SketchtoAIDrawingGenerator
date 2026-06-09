@@ -51,6 +51,11 @@ const jumpTargets = {
   settings: document.querySelector("#settingsSection"),
   result: document.querySelector("#resultSection")
 };
+const apiBaseUrl = (window.SKETCH_AI_API_BASE_URL || "").replace(/\/$/, "");
+
+function apiUrl(path) {
+  return `${apiBaseUrl}${path}`;
+}
 
 const enhancementPrompts = {
   1: "Clean up the sketch lines while keeping the original composition and hand-drawn feeling.",
@@ -662,7 +667,7 @@ async function refreshCreditStatus() {
     creditRemaining.textContent = "讀取中";
     creditDetail.textContent = "OpenAI 用量";
 
-    const response = await fetch("/api/credit-status");
+    const response = await fetch(apiUrl("/api/credit-status"));
     const status = await response.json();
     renderCreditStatus(status);
   } catch (error) {
@@ -675,7 +680,7 @@ async function refreshCreditStatus() {
 
 async function refreshApiStatus() {
   try {
-    const response = await fetch("/api/status");
+    const response = await fetch(apiUrl("/api/status"));
     if (!response.ok) throw new Error("API status unavailable.");
 
     const status = await response.json();
@@ -809,7 +814,7 @@ async function generateMockImage(payload) {
 
 async function generateRealAIImage(payload) {
   console.log("Ready for real AI API payload:", getSafePayloadLog(payload));
-  const response = await fetch("/api/generate-image", {
+  const response = await fetch(apiUrl("/api/generate-image"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json"

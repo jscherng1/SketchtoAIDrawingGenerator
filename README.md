@@ -13,7 +13,8 @@ OPENAI_IMAGE_MODEL=gpt-image-1.5
 OPENAI_CREDIT_BUDGET_USD=5
 OPENAI_CREDIT_START_DATE=2026-06-01
 OPENAI_CREDIT_INITIAL_SPENT_USD=0
-OPENAI_ESTIMATED_IMAGE_COST_USD=0.05
+OPENAI_ESTIMATED_IMAGE_COST_USD=0.04
+ALLOWED_ORIGIN=*
 PORT=8765
 ```
 
@@ -75,3 +76,67 @@ OPENAI_CREDIT_INITIAL_SPENT_USD=0.60
 ```
 
 之後 App 成功產生圖片時，會再用本機紀錄往下扣估算額。
+
+## 手機 / GitHub Pages 部署
+
+GitHub Pages 只能執行前端靜態網頁，不能安全保存 OpenAI API Key，也不能執行 `preview-server.js`。如果要讓手機打開 GitHub Pages 網址後可以真正產圖，需要另外部署後端。
+
+### 1. 前端放 GitHub Pages
+
+可以上傳：
+
+```text
+index.html
+styles.css
+app.js
+config.js
+README.md
+AGENTS.md
+.env.example
+.gitignore
+package.json
+preview-server.js
+```
+
+不要上傳：
+
+```text
+.env
+.openai-credit-usage.json
+*.log
+```
+
+### 2. 後端部署到 Node.js 平台
+
+可使用 Render、Railway、Fly.io、Vercel Serverless 等能執行 Node.js 的平台。最簡單的啟動命令是：
+
+```text
+npm start
+```
+
+後端平台要設定環境變數：
+
+```text
+OPENAI_API_KEY=sk-你的-key
+OPENAI_IMAGE_MODEL=gpt-image-1.5
+OPENAI_CREDIT_BUDGET_USD=5
+OPENAI_CREDIT_INITIAL_SPENT_USD=0.5
+OPENAI_ESTIMATED_IMAGE_COST_USD=0.04
+ALLOWED_ORIGIN=https://你的帳號.github.io
+```
+
+部署完成後會得到一個後端網址，例如：
+
+```text
+https://your-sketch-ai-backend.onrender.com
+```
+
+### 3. 讓 GitHub Pages 前端連到後端
+
+打開 `config.js`，改成你的後端網址：
+
+```javascript
+window.SKETCH_AI_API_BASE_URL = "https://your-sketch-ai-backend.onrender.com";
+```
+
+重新上傳 `config.js` 到 GitHub 後，手機打開 GitHub Pages 網址，就會把產圖請求送到遠端後端，再由後端呼叫 OpenAI API。

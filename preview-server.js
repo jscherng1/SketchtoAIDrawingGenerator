@@ -42,7 +42,7 @@ function loadDotEnv() {
 loadDotEnv();
 
 const port = Number(process.env.PORT || 8765);
-const host = process.env.HOST || "127.0.0.1";
+const host = process.env.HOST || "0.0.0.0";
 const defaultImageModel = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1.5";
 const creditBudgetUsd = Number(process.env.OPENAI_CREDIT_BUDGET_USD || 5);
 const creditStartDate = process.env.OPENAI_CREDIT_START_DATE || "";
@@ -51,7 +51,12 @@ const estimatedImageCostUsd = Number(process.env.OPENAI_ESTIMATED_IMAGE_COST_USD
 const usageStorePath = path.join(root, ".openai-credit-usage.json");
 
 function sendJson(res, statusCode, payload) {
-  res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
+  res.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Access-Control-Allow-Origin": process.env.ALLOWED_ORIGIN || "*",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type,Authorization"
+  });
   res.end(JSON.stringify(payload));
 }
 
@@ -310,6 +315,16 @@ http
   .createServer((req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
 
+    if (req.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
+      res.writeHead(204, {
+        "Access-Control-Allow-Origin": process.env.ALLOWED_ORIGIN || "*",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type,Authorization"
+      });
+      res.end();
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/api/status") {
       sendJson(res, 200, {
         provider: "openai",
@@ -353,7 +368,8 @@ http
     });
   })
   .listen(port, host, () => {
-    console.log(`Sketch AI preview server running at http://${host}:${port}/`);
+    const displayHost = host === "0.0.0.0" ? "127.0.0.1" : host;
+    console.log(`Sketch AI preview server running at http://${displayHost}:${port}/`);
     console.log(
       process.env.OPENAI_API_KEY
         ? `OpenAI API key loaded. Default image model: ${defaultImageModel}`

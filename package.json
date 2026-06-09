@@ -1,0 +1,11 @@
+{
+  "name": "sketch-ai-drawing-generator",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node preview-server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
