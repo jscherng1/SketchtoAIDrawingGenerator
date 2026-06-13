@@ -1,6 +1,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
 
 const root = __dirname;
 const types = {
@@ -112,6 +113,109 @@ function getImageFilename(mime) {
   }[mime] || "png";
 
   return `sketch.${extension}`;
+}
+
+function paethPredictor(left, above, upperLeft) {
+  const prediction = left + above - upperLeft;
+  const leftDistance = Math.abs(prediction - left);
+  const aboveDistance = Math.abs(prediction - above);
+  const upperLeftDistance = Math.abs(prediction - upperLeft);
+
+  if (leftDistance <= aboveDistance && leftDistance <= upperLeftDistance) return left;
+  if (aboveDistance <= upperLeftDistance) return above;
+  return upperLeft;
+}
+
+function pngHasTransparentPixels(bytes) {
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  if (bytes.length < 33 || !bytes.subarray(0, 8).equals(signature)) return false;
+
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  let interlaceMethod = 0;
+  let transparency = null;
+  const imageDataChunks = [];
+
+  while (offset + 12 <= bytes.length) {
+    const length = bytes.readUInt32BE(offset);
+    const type = bytes.toString("ascii", offset + 4, offset + 8);
+    const chunkData = bytes.subarray(offset + 8, offset + 8 + length);
+
+    if (type === "IHDR") {
+      width = chunkData.readUInt32BE(0);
+      height = chunkData.readUInt32BE(4);
+      bitDepth = chunkData[8];
+      colorType = chunkData[9];
+      interlaceMethod = chunkData[12];
+    } else if (type === "tRNS") {
+      transparency = Buffer.from(chunkData);
+    } else if (type === "IDAT") {
+      imageDataChunks.push(chunkData);
+    }
+
+    if (type === "IEND") break;
+    offset += 12 + length;
+  }
+
+  if (!width || !height || bitDepth !== 8 || interlaceMethod !== 0 || imageDataChunks.length === 0) {
+    return false;
+  }
+
+  const channelsByColorType = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+  const channels = channelsByColorType[colorType];
+  if (!channels) return false;
+
+  const bytesPerPixel = channels;
+  const rowLength = width * channels;
+  const inflated = zlib.inflateSync(Buffer.concat(imageDataChunks));
+  const previousRow = Buffer.alloc(rowLength);
+  const currentRow = Buffer.alloc(rowLength);
+  let inputOffset = 0;
+
+  for (let row = 0; row < height; row += 1) {
+    const filterType = inflated[inputOffset];
+    inputOffset += 1;
+
+    for (let column = 0; column < rowLength; column += 1) {
+      const raw = inflated[inputOffset + column];
+      const left = column >= bytesPerPixel ? currentRow[column - bytesPerPixel] : 0;
+      const above = previousRow[column];
+      const upperLeft = column >= bytesPerPixel ? previousRow[column - bytesPerPixel] : 0;
+      let value = raw;
+
+      if (filterType === 1) value = raw + left;
+      if (filterType === 2) value = raw + above;
+      if (filterType === 3) value = raw + Math.floor((left + above) / 2);
+      if (filterType === 4) value = raw + paethPredictor(left, above, upperLeft);
+      currentRow[column] = value & 255;
+    }
+
+    inputOffset += rowLength;
+
+    for (let pixel = 0; pixel < width; pixel += 1) {
+      const pixelOffset = pixel * channels;
+      if (colorType === 6 && currentRow[pixelOffset + 3] < 255) return true;
+      if (colorType === 4 && currentRow[pixelOffset + 1] < 255) return true;
+      if (colorType === 3 && transparency && (transparency[currentRow[pixelOffset]] ?? 255) < 255) return true;
+      if (colorType === 0 && transparency?.length >= 2 && currentRow[pixelOffset] === transparency.readUInt16BE(0)) return true;
+      if (
+        colorType === 2 &&
+        transparency?.length >= 6 &&
+        currentRow[pixelOffset] === transparency.readUInt16BE(0) &&
+        currentRow[pixelOffset + 1] === transparency.readUInt16BE(2) &&
+        currentRow[pixelOffset + 2] === transparency.readUInt16BE(4)
+      ) {
+        return true;
+      }
+    }
+
+    currentRow.copy(previousRow);
+  }
+
+  return false;
 }
 
 function getCreditStartTime() {
@@ -274,12 +378,25 @@ async function handleImageGeneration(req, res) {
       return;
     }
 
+    const requestedModel = payload.model || defaultImageModel;
+    if (payload.removeBackground && requestedModel.startsWith("gpt-image-2")) {
+      sendJson(res, 400, {
+        error: "gpt-image-2 does not currently support transparent backgrounds. Use gpt-image-1.5 for Remove Background."
+      });
+      return;
+    }
+
     const imageBlob = dataUrlToBlob(payload.sketchImageBase64);
     const form = new FormData();
-    form.append("model", payload.model || defaultImageModel);
+    form.append("model", requestedModel);
     form.append("prompt", payload.prompt);
     form.append("image", imageBlob, getImageFilename(imageBlob.type));
     form.append("size", payload.size || "1024x1024");
+    form.append("output_format", "png");
+
+    if (payload.removeBackground) {
+      form.append("background", "transparent");
+    }
 
     if (payload.quality) {
       form.append("quality", payload.quality);
@@ -314,11 +431,25 @@ async function handleImageGeneration(req, res) {
       return;
     }
 
+    const imageBytes = Buffer.from(imageBase64, "base64");
+    const hasTransparentPixels = payload.removeBackground
+      ? pngHasTransparentPixels(imageBytes)
+      : false;
+
     recordEstimatedImageSpend(payload);
+
+    if (payload.removeBackground && !hasTransparentPixels) {
+      sendJson(res, 502, {
+        error: "OpenAI returned an image without any truly transparent pixels. Please regenerate with Remove Background enabled and model gpt-image-1.5."
+      });
+      return;
+    }
+
     sendJson(res, 200, {
       imageUrl: `data:image/png;base64,${imageBase64}`,
       revisedPrompt: data.data?.[0]?.revised_prompt || "",
-      source: "openai"
+      source: "openai",
+      transparent: hasTransparentPixels
     });
   } catch (error) {
     sendJson(res, 500, { error: error.message || "Server error." });

@@ -13,6 +13,7 @@ const clearBtn = document.querySelector("#clearBtn");
 const downloadSketchBtn = document.querySelector("#downloadSketchBtn");
 const enhancementLevel = document.querySelector("#enhancementLevel");
 const stylePreset = document.querySelector("#stylePreset");
+const removeBackground = document.querySelector("#removeBackground");
 const extraPrompt = document.querySelector("#extraPrompt");
 const promptText = document.querySelector("#promptText");
 const copyPromptBtn = document.querySelector("#copyPromptBtn");
@@ -180,6 +181,7 @@ let lastPoint = null;
 let undoStack = [];
 let latestResultUrl = "";
 let latestSourceUrl = "";
+let latestResultTransparent = false;
 let resultViewMode = "single";
 let latestDownloadUrl = "";
 let resultHistory = [];
@@ -206,6 +208,7 @@ function renderEmptyResult() {
   if (resultNote) resultNote.textContent = "";
   latestResultUrl = "";
   latestSourceUrl = "";
+  latestResultTransparent = false;
   activeHistoryId = "";
   renderHistory();
 }
@@ -215,12 +218,13 @@ function setResultViewMode(mode) {
   resultViewButtons.forEach((button) => {
     button.classList.toggle("is-active", button.dataset.resultView === mode);
   });
-  if (latestResultUrl) renderCurrentResult(latestResultUrl, latestSourceUrl);
+  if (latestResultUrl) renderCurrentResult(latestResultUrl, latestSourceUrl, latestResultTransparent);
 }
 
-function renderCurrentResult(imageUrl, sourceUrl = latestSourceUrl) {
+function renderCurrentResult(imageUrl, sourceUrl = latestSourceUrl, transparent = latestResultTransparent) {
   latestResultUrl = imageUrl;
   latestSourceUrl = sourceUrl || latestSourceUrl;
+  latestResultTransparent = Boolean(transparent);
   resultPreview.innerHTML = "";
 
   if (resultViewMode === "compare" && latestSourceUrl) {
@@ -230,7 +234,7 @@ function renderCurrentResult(imageUrl, sourceUrl = latestSourceUrl) {
           <strong>原始草圖</strong>
           <img src="${latestSourceUrl}" alt="原始草圖">
         </div>
-        <div class="compare-card">
+        <div class="compare-card${latestResultTransparent ? " transparent-preview" : ""}">
           <strong>修飾結果</strong>
           <img src="${imageUrl}" alt="修飾結果">
         </div>
@@ -240,10 +244,13 @@ function renderCurrentResult(imageUrl, sourceUrl = latestSourceUrl) {
     return;
   }
 
+  const stage = document.createElement("div");
+  stage.className = `result-image-stage${latestResultTransparent ? " transparent-preview" : ""}`;
   const image = document.createElement("img");
   image.alt = "AI 修飾結果預覽";
   image.src = imageUrl;
-  resultPreview.append(image);
+  stage.append(image);
+  resultPreview.append(stage);
   resultActions.hidden = false;
 }
 
@@ -252,6 +259,7 @@ function addResultHistoryItem(result, payload) {
     id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
     imageUrl: result.imageUrl,
     sourceUrl: payload.sketchImageBase64,
+    transparent: Boolean(result.transparent),
     level: payload.enhancementLevel,
     label: payload.enhancementLabel,
     createdAt: new Date()
@@ -286,7 +294,7 @@ function selectHistoryItem(id) {
   const item = resultHistory.find((entry) => entry.id === id);
   if (!item) return;
   activeHistoryId = item.id;
-  renderCurrentResult(item.imageUrl, item.sourceUrl);
+  renderCurrentResult(item.imageUrl, item.sourceUrl, item.transparent);
   if (resultNote) resultNote.textContent = `已切回結果紀錄：第 ${item.level} 級 AI 修飾結果。`;
   renderHistory();
 }
@@ -319,6 +327,7 @@ function buildProjectSnapshot() {
     apiModel: apiModelInput.value,
     enhancementLevel: enhancementLevel.value,
     stylePreset: stylePreset.value,
+    removeBackground: removeBackground.checked,
     extraPrompt: extraPrompt.value,
     canvasImage: canvas.toDataURL("image/png"),
     resultHistory: resultHistory.map((item) => ({
@@ -376,6 +385,7 @@ async function applyProjectSnapshot(project) {
   apiModelInput.value = project.apiModel || "gpt-image-1.5";
   enhancementLevel.value = project.enhancementLevel || "4";
   stylePreset.value = project.stylePreset || "cute";
+  removeBackground.checked = Boolean(project.removeBackground);
   extraPrompt.value = project.extraPrompt || "";
 
   if (project.canvasImage) {
@@ -397,12 +407,12 @@ async function applyProjectSnapshot(project) {
 
     const activeItem = resultHistory.find((item) => item.id === activeHistoryId);
     if (activeItem) {
-      renderCurrentResult(activeItem.imageUrl, activeItem.sourceUrl);
+      renderCurrentResult(activeItem.imageUrl, activeItem.sourceUrl, activeItem.transparent);
   } else if (resultHistory.length === 0) {
     renderEmptyResult();
   } else {
       activeHistoryId = resultHistory[0].id;
-      renderCurrentResult(resultHistory[0].imageUrl, resultHistory[0].sourceUrl);
+      renderCurrentResult(resultHistory[0].imageUrl, resultHistory[0].sourceUrl, resultHistory[0].transparent);
       renderHistory();
     }
 
@@ -577,6 +587,9 @@ function buildPrompt() {
   const name = projectName.value.trim() || "untitled sketch";
   const mode = getSketchMode();
   const modePrompt = getSketchModePrompt(mode);
+  const backgroundRule = removeBackground.checked
+    ? "Isolate the main subject and remove the entire background. Return real pixel transparency with an alpha channel. Do not draw or bake a checkerboard, gray grid, white backdrop, floor, shadow plane, frame, or scenery into the image."
+    : "Keep or create a background only when it supports the selected visual style.";
   const level = enhancementLevel.value;
   const style = stylePresets[stylePreset.value] || stylePresets.cute;
   const extra = extraPrompt.value.trim();
@@ -587,6 +600,7 @@ function buildPrompt() {
     "Preserve the original composition and main shape.",
     modePrompt.description,
     modePrompt.colorRule,
+    backgroundRule,
     `Enhancement level: ${enhancementLevel.options[enhancementLevel.selectedIndex].text}.`,
     `Visual style: ${style.label}.`,
     enhancementPrompts[level],
@@ -608,6 +622,9 @@ function buildAIRequestPayload() {
     enhancementLabel: enhancementLevel.options[enhancementLevel.selectedIndex].text,
     stylePreset: stylePreset.value,
     styleLabel: stylePresets[stylePreset.value]?.label || "可愛插畫",
+    removeBackground: removeBackground.checked,
+    background: removeBackground.checked ? "transparent" : "auto",
+    outputFormat: "png",
     extraPrompt: extraPrompt.value.trim(),
     prompt: buildPrompt(),
     sketchImageBase64: canvas.toDataURL("image/png"),
@@ -833,6 +850,7 @@ async function generateRealAIImage(payload) {
     imageUrl: data.imageUrl,
     prompt: payload.prompt,
     revisedPrompt: data.revisedPrompt || "",
+    transparent: Boolean(data.transparent),
     payload,
     source: data.source || "openai"
   };
@@ -945,7 +963,8 @@ function downloadBlob(blob, filename) {
 async function downloadResult() {
   if (!latestResultUrl) return;
   const blob = dataUrlToBlob(latestResultUrl);
-  const filename = `${projectName.value.trim() || "ai-preview"}-結果.png`;
+  const suffix = latestResultTransparent ? "去背結果" : "結果";
+  const filename = `${projectName.value.trim() || "ai-preview"}-${suffix}.png`;
   const savedWithPicker = await saveBlob(blob, filename, latestResultUrl);
   showDownloadNotice(filename, "結果", latestResultUrl, savedWithPicker);
   if (resultNote) {
@@ -1085,7 +1104,7 @@ backTopButtons.forEach((button) => {
   });
 });
 
-[projectName, enhancementLevel, stylePreset, extraPrompt, ...document.querySelectorAll("input[name='sketchMode']")].forEach((input) => {
+[projectName, enhancementLevel, stylePreset, removeBackground, extraPrompt, ...document.querySelectorAll("input[name='sketchMode']")].forEach((input) => {
   input.addEventListener("input", updatePromptPreview);
   input.addEventListener("change", updatePromptPreview);
 });
@@ -1140,12 +1159,12 @@ async function copyText(text) {
 
 generateBtn.addEventListener("click", async () => {
   generateBtn.disabled = true;
-  generateBtn.textContent = "修飾中...";
+  generateBtn.textContent = removeBackground.checked ? "修飾並去背中..." : "修飾中...";
   resultPreview.innerHTML = `
     <div class="empty-result is-loading">
       <span aria-hidden="true">◇</span>
-      <strong>正在產生預覽</strong>
-      <small>目前會先顯示原始草圖，之後可接上真正 AI API。</small>
+      <strong>${removeBackground.checked ? "正在產生去背圖片" : "正在產生 AI 圖片"}</strong>
+      <small>${removeBackground.checked ? "完成後會輸出透明背景 PNG。" : "請稍候，AI 正在依照設定修飾草圖。"}</small>
     </div>
   `;
 
@@ -1154,7 +1173,7 @@ generateBtn.addEventListener("click", async () => {
     console.log("AI request payload:", getSafePayloadLog(payload));
     const result = await generateAIImage(payload);
 
-    renderCurrentResult(result.imageUrl, payload.sketchImageBase64);
+    renderCurrentResult(result.imageUrl, payload.sketchImageBase64, result.transparent);
     addResultHistoryItem(result, payload);
     if (resultNote) resultNote.textContent = `目前顯示第 ${payload.enhancementLevel} 級 OpenAI 產生結果。`;
     refreshCreditStatus();
